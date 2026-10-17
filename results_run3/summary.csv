@@ -1,0 +1,3 @@
+mode,ping_loss_pct,avg_rtt_ms,p95_rtt_ms,max_rtt_ms,udp_loss_pct,goodput_mbps,switches,first_switch_after_degrade_s
+static,20.3,93.2,155.0,155.0,20.3,3.19,0,
+adaptive,1.0,16.9,10.4,155.0,1.9,3.93,2,3.1

@@ -1,0 +1,20 @@
+{
+  "static": {
+    "ping_loss_pct": 20.33,
+    "udp_loss_pct": 19.97,
+    "avg_rtt_ms": 93.13,
+    "p95_rtt_ms": 155.0,
+    "goodput_mbps": 3.2,
+    "switches": 0.0,
+    "first_switch_after_degrade_s": null
+  },
+  "adaptive": {
+    "ping_loss_pct": 1.9,
+    "udp_loss_pct": 1.77,
+    "avg_rtt_ms": 14.83,
+    "p95_rtt_ms": 10.23,
+    "goodput_mbps": 3.93,
+    "switches": 2.0,
+    "first_switch_after_degrade_s": 2.8
+  }
+}

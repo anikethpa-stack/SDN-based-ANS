@@ -1,0 +1,24 @@
+[
+  {
+    "mode": "static",
+    "ping_loss_pct": 18.7,
+    "avg_rtt_ms": 94.4,
+    "p95_rtt_ms": 155.0,
+    "max_rtt_ms": 155.0,
+    "udp_loss_pct": 19.8,
+    "goodput_mbps": 3.21,
+    "switches": 0,
+    "first_switch_after_degrade_s": ""
+  },
+  {
+    "mode": "adaptive",
+    "ping_loss_pct": 2.0,
+    "avg_rtt_ms": 15.5,
+    "p95_rtt_ms": 10.2,
+    "max_rtt_ms": 155.0,
+    "udp_loss_pct": 1.9,
+    "goodput_mbps": 3.93,
+    "switches": 2,
+    "first_switch_after_degrade_s": 3.1
+  }
+]
