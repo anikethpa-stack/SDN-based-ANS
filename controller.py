@@ -1,4 +1,7 @@
-import json, os, struct, time
+import json
+import os
+import struct
+import time
 from collections import deque
 
 from os_ken.base import app_manager
@@ -10,6 +13,8 @@ from os_ken.lib import hub
 from os_ken.lib.packet import packet, ethernet
 
 CMD_FILE = '/tmp/active_path.txt'
+MODE_FILE = '/tmp/mode.txt'
+POLICY_FILE = '/tmp/net_policy.json'   # written by Flask: cost penalty per network
 STATE_FILE = '/tmp/sdn_state.json'
 PATH_PORT = {'A': 2, 'B': 3, 'C': 4}
 PORT_PATH = {v: k for k, v in PATH_PORT.items()}
@@ -21,6 +26,13 @@ PROBE_SIZE = struct.calcsize(PROBE_FMT)
 PROBE_INTERVAL = 0.5
 PROBE_TIMEOUT = 1.5
 HIST = 20
+
+# ---- decision rules (the dashboard shows these numbers) ----
+RATIO = 0.8          # a challenger must score below 80% of the active network
+MIN_GAIN = 20        # ... and at least 20 points lower
+NEED_STREAK = 3      # ... on 3 consecutive 1-second checks
+COOLDOWN = 10        # seconds that must pass after a switch
+WARMUP_SAMPLES = 8   # probe results needed per network before deciding
 
 
 class AdaptiveSwitch(app_manager.OSKenApp):
@@ -36,6 +48,10 @@ class AdaptiveSwitch(app_manager.OSKenApp):
         self.tx_mbps = {p: 0.0 for p in PATH_PORT}
         self.last_tx = {}
         self.event_log = []
+        self.decision = {'state': 'warmup', 'active': 'A'}
+        self.last_decision = None
+        self._better_count = 0
+        self._last_switch = 0.0
         with open(CMD_FILE, 'w') as f:
             f.write('A')
         hub.spawn(self._watch_file)
@@ -71,13 +87,16 @@ class AdaptiveSwitch(app_manager.OSKenApp):
                               dp.ofproto.OFPP_CONTROLLER)
         self.logger.info('Switch s%s connected', dp.id)
 
-    def switch_to(self, path):
+    def switch_to(self, path, why='manual', old=None, new=None):
         for dpid in (1, 2):
             dp = self.dps.get(dpid)
             if dp:
                 self.add_flow(dp, 10, dp.ofproto_parser.OFPMatch(in_port=1),
                               PATH_PORT[path])
         self.log_event('switch', path, 'from %s' % self.active)
+        self.last_decision = {'ts': time.time(), 'from': self.active,
+                              'to': path, 'why': why,
+                              'old_score': old, 'new_score': new}
         self.active = path
 
     def log_event(self, kind, path, detail):
@@ -96,7 +115,7 @@ class AdaptiveSwitch(app_manager.OSKenApp):
             except OSError:
                 continue
             if want in PATH_PORT and want != self.active:
-                self.switch_to(want)
+                self.switch_to(want, 'manual')
 
     # ---------- probes: latency + loss ----------
     def send_probe(self, dp, path, seq, ts):
@@ -208,62 +227,119 @@ class AdaptiveSwitch(app_manager.OSKenApp):
             parts.append('%s: lat=%sms loss=%s%% tx=%sMbps %s' % (
                 p, m['latency_ms'], m['loss_pct'], m['tx_mbps'],
                 'UP' if m['up'] else 'DOWN'))
-        return ' | '.join(parts) + ' || active=' + self.active
+        d = self.decision
+        sc = d.get('scores', {})
+        return ' | '.join(parts) + ' || active=%s state=%s scores=%s' % (
+            self.active, d.get('state'), sc)
 
     def write_state(self):
         state = {'ts': time.time(), 'active': self.active,
                  'paths': {p: self.metrics(p) for p in PATH_PORT},
-                 'events': self.event_log[-30:]}
+                 'events': self.event_log[-30:],
+                 'decision': self.decision}
         tmp = STATE_FILE + '.tmp'
         with open(tmp, 'w') as f:
             json.dump(state, f)
         os.replace(tmp, STATE_FILE)
 
     # ---------- decision engine ----------
-    MODE_FILE = '/tmp/mode.txt'
-    _better_count = 0
-    _last_switch = 0.0
-
-    def score(self, path):
-        m = self.metrics(path)
-        if not m['up'] or m['latency_ms'] is None:
-            return float('inf')
-        return m['latency_ms'] + 10.0 * m['loss_pct']
+    def penalties(self):
+        """Cost penalty per network (for example metered mobile data).
+        Flask refreshes the file every 2 s. If it is stale, no penalty applies,
+        which keeps the old static-vs-adaptive experiment unchanged."""
+        try:
+            if time.time() - os.path.getmtime(POLICY_FILE) > 8:
+                return {}
+            with open(POLICY_FILE) as f:
+                d = json.load(f)
+            return {p: float(d.get(p, {}).get('penalty', 0)) for p in PATH_PORT}
+        except Exception:
+            return {}
 
     def mode(self):
         try:
-            with open(self.MODE_FILE) as f:
+            with open(MODE_FILE) as f:
                 return f.read().strip().lower()
         except OSError:
             return 'adaptive'
 
-    def do_switch(self, path, reason):
+    def score(self, path, pen):
+        m = self.metrics(path)
+        if not m['up'] or m['latency_ms'] is None:
+            return float('inf')
+        return m['latency_ms'] + 10.0 * m['loss_pct'] + pen.get(path, 0.0)
+
+    def do_switch(self, path, reason, why, old, new):
         self.log_event('decision', path, reason)
-        self.switch_to(path)
+        self.switch_to(path, why, old, new)
         with open(CMD_FILE, 'w') as f:
             f.write(path)
         self._last_switch = time.time()
         self._better_count = 0
 
+    def _decision_step(self):
+        now = time.time()
+        pen = self.penalties()
+        mode = self.mode()
+        scores = {p: self.score(p, pen) for p in PATH_PORT}
+        best = min(scores, key=scores.get)
+        cur = scores[self.active]
+        cool = max(0.0, COOLDOWN - (now - self._last_switch))
+        parts = {}
+        for p in PATH_PORT:
+            m = self.metrics(p)
+            parts[p] = {'latency': m['latency_ms'], 'loss_pts': round(10.0 * m['loss_pct'], 1),
+                        'penalty': pen.get(p, 0.0), 'up': m['up']}
+        d = {'mode': mode, 'active': self.active, 'best': best,
+             'scores': {p: (None if s == float('inf') else round(s, 1))
+                        for p, s in scores.items()},
+             'parts': parts, 'challenger': None, 'streak': 0,
+             'need': NEED_STREAK, 'cooldown_left': round(cool, 1),
+             'cooldown': COOLDOWN, 'ratio': RATIO, 'min_gain': MIN_GAIN,
+             'state': 'stay', 'last': self.last_decision}
+
+        if mode != 'adaptive':
+            self._better_count = 0
+            d['state'] = 'static'
+        elif any(len(self.hist[p]) < WARMUP_SAMPLES for p in PATH_PORT):
+            self._better_count = 0
+            d['state'] = 'warmup'
+        elif cur == float('inf'):
+            if best != self.active and scores[best] != float('inf'):
+                self.do_switch(best, 'active path unavailable', 'unavailable',
+                               None, scores[best])
+                d['state'] = 'active_down'
+                d['challenger'] = best
+                d['last'] = self.last_decision
+                d['active'] = self.active
+                d['cooldown_left'] = float(COOLDOWN)
+            else:
+                d['state'] = 'no_alternative'
+        else:
+            better = (best != self.active
+                      and scores[best] < RATIO * cur
+                      and cur - scores[best] > MIN_GAIN)
+            self._better_count = self._better_count + 1 if better else 0
+            d['streak'] = min(self._better_count, NEED_STREAK)
+            if better:
+                d['challenger'] = best
+                if self._better_count >= NEED_STREAK and cool <= 0:
+                    self.do_switch(best, 'score %.0f -> %.0f' % (cur, scores[best]),
+                                   'better', cur, scores[best])
+                    d['state'] = 'switched'
+                    d['last'] = self.last_decision
+                    d['active'] = self.active
+                    d['cooldown_left'] = float(COOLDOWN)
+                elif self._better_count >= NEED_STREAK:
+                    d['state'] = 'cooldown'
+                else:
+                    d['state'] = 'challenger'
+        self.decision = d
+
     def _decision_loop(self):
         while True:
             hub.sleep(1)
-            if self.mode() != 'adaptive':
-                self._better_count = 0
-                continue
-            if any(len(self.hist[p]) < 8 for p in PATH_PORT):
-                continue
-            scores = {p: self.score(p) for p in PATH_PORT}
-            best = min(scores, key=scores.get)
-            cur = scores[self.active]
-            now = time.time()
-            if cur == float('inf'):
-                if best != self.active and scores[best] != float('inf'):
-                    self.do_switch(best, 'active path unavailable')
-                continue
-            better = (best != self.active
-                      and scores[best] < 0.8 * cur
-                      and cur - scores[best] > 20)
-            self._better_count = self._better_count + 1 if better else 0
-            if self._better_count >= 3 and now - self._last_switch >= 10:
-                self.do_switch(best, 'score %.0f -> %.0f' % (cur, scores[best]))
+            try:
+                self._decision_step()
+            except Exception:
+                self.logger.exception('decision step failed')

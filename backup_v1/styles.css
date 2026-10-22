@@ -1,0 +1,39 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, sans-serif; background: #f3f4f6; color: #111827; }
+.page { max-width: 1100px; margin: 0 auto; padding: 20px; }
+header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+h1 { font-size: 22px; margin: 0; }
+h2 { font-size: 16px; margin: 0; }
+h3 { font-size: 15px; margin: 0 0 10px; }
+.pill { padding: 4px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+.pill.ok { background: #dcfce7; color: #166534; }
+.pill.bad { background: #fee2e2; color: #991b1b; }
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 14px; }
+.panel, .card { background: #fff; border-radius: 10px; padding: 16px; border: 2px solid transparent; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.panel { margin-bottom: 14px; }
+.card.active { border-color: #2563eb; }
+.card.down { background: #fef2f2; }
+.card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.badge { background: #2563eb; color: #fff; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; }
+.status { font-size: 13px; font-weight: 700; margin-bottom: 8px; }
+.status.up { color: #166534; }
+.status.down { color: #991b1b; }
+dl { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; margin: 0; font-size: 14px; }
+dt { color: #6b7280; }
+dd { margin: 0; font-weight: 600; text-align: right; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
+.label { font-size: 13px; color: #6b7280; min-width: 110px; }
+button { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+button.on { background: #2563eb; color: #fff; border-color: #2563eb; }
+.hint { font-size: 12px; color: #6b7280; margin-top: 4px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e5e7eb; }
+th { color: #6b7280; font-weight: 600; }
+.events { max-height: 220px; overflow-y: auto; font-size: 13px; }
+.ev { padding: 5px 0; border-bottom: 1px solid #f3f4f6; }
+.ev .t { color: #6b7280; margin-right: 8px; }
+.k-switch { color: #2563eb; font-weight: 700; }
+.k-link { color: #b91c1c; font-weight: 700; }
+.k-decision { color: #7c3aed; font-weight: 700; }
+.empty { color: #9ca3af; font-size: 13px; }
+@media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
