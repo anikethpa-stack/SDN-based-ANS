@@ -161,16 +161,14 @@ The controller uses OpenFlow port mappings to select the active path. Link impai
 
 The current controller calculates a score for each available path:
 
-\[
-\text{Score}(p) = \text{Latency}_{p} + 10 \times \text{Loss}_{p} + \text{Penalty}_{p}
-\]
+score = latency (ms) + 10 × packet loss (%) + cost
 
 Where:
 
-- \(\text{Latency}_{p}\) is the measured probe latency in milliseconds.
-- \(\text{Loss}_{p}\) is the measured packet-loss percentage.
+- Latency is the measured probe latency in milliseconds.
+- Loss is the measured packet-loss percentage.
 - The factor `10` weights each percentage point of packet loss in the score.
-- \(\text{Penalty}_{p}\) is an optional policy cost, for example to discourage use of a simulated metered mobile-data path.
+- Penalty is an optional policy cost, for example to discourage use of a simulated metered mobile-data path.
 - A path that is down or has no usable latency measurement is assigned an infinite score.
 
 The score is a project-defined heuristic, not a standardized networking metric. Its weights and penalty values are configurable in the project code.
